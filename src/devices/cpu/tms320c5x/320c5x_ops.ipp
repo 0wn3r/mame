@@ -295,7 +295,27 @@ void tms320c51_device::op_abs()
 
 void tms320c51_device::op_adcb()
 {
-	fatalerror("TMS320C5x: unimplemented op adcb at %08X\n", m_pc-1);
+	uint64_t const res = uint64_t(uint32_t(m_acc)) + uint32_t(m_accb) + m_st1.c;
+	uint32_t r = uint32_t(res);
+
+	// C is set if carry was generated
+	m_st1.c = BIT(res, 32);
+
+	// check overflow
+	if ((uint32_t(m_acc) ^ r) & (uint32_t(m_accb) ^ r) & 0x8000'0000)
+	{
+		if (m_st0.ovm)  // overflow saturation mode
+		{
+			r = (int32_t(r) < 0) ? 0x7fff'ffff : 0x8000'0000;
+		}
+
+		// set OV, this is a sticky flag
+		m_st0.ov = 1;
+	}
+
+	m_acc = int32_t(r);
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_add_mem()
@@ -377,7 +397,14 @@ void tms320c51_device::op_adds()
 
 void tms320c51_device::op_addt()
 {
-	fatalerror("TMS320C5x: unimplemented op addt at %08X\n", m_pc-1);
+	uint16_t const ea = GET_ADDRESS();
+	uint16_t const data = DM_READ16(ea);
+	int const shift = m_treg1 & 0xf;
+
+	uint32_t const d = m_st1.sxm ? (uint32_t(int32_t(int16_t(data))) << shift) : (uint32_t(data) << shift);
+	m_acc = ADD(m_acc, d, false);
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_and_mem()
@@ -407,7 +434,9 @@ void tms320c51_device::op_and_s16_limm()
 
 void tms320c51_device::op_andb()
 {
-	fatalerror("TMS320C5x: unimplemented op andb at %08X\n", m_pc-1);
+	m_acc &= m_accb;
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_bsar()
@@ -541,7 +570,14 @@ void tms320c51_device::op_lacl_mem()
 
 void tms320c51_device::op_lact()
 {
-	fatalerror("TMS320C5x: unimplemented op lact at %08X\n", m_pc-1);
+	uint16_t const ea = GET_ADDRESS();
+	uint16_t const data = DM_READ16(ea);
+	int const shift = m_treg1 & 0xf;
+
+	// no flags affected
+	m_acc = int32_t(m_st1.sxm ? (uint32_t(int32_t(int16_t(data))) << shift) : (uint32_t(data) << shift));
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_lamm()
@@ -631,7 +667,16 @@ void tms320c51_device::op_ror()
 
 void tms320c51_device::op_rorb()
 {
-	fatalerror("TMS320C5x: unimplemented op rorb at %08X\n", m_pc-1);
+	uint32_t const acc = m_acc;
+	uint32_t const accb = m_accb;
+	uint32_t const c = m_st1.c & 1;
+
+	// 65-bit rotate right through C
+	m_acc = (acc >> 1) | (c << 31);
+	m_accb = (accb >> 1) | ((acc & 1) << 31);
+	m_st1.c = accb & 1;
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_sacb()
@@ -702,7 +747,15 @@ void tms320c51_device::op_sbb()
 
 void tms320c51_device::op_sbbb()
 {
-	fatalerror("TMS320C5x: unimplemented op sbbb at %08X\n", m_pc-1);
+	uint64_t const sub = uint64_t(uint32_t(m_accb)) + (m_st1.c ^ 1);
+	uint32_t const res = uint32_t(m_acc) - uint32_t(sub);
+
+	// C is cleared if borrow was generated, OV is not affected
+	m_st1.c = (uint64_t(uint32_t(m_acc)) < sub) ? 0 : 1;
+
+	m_acc = int32_t(res);
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_sfl()
@@ -743,7 +796,15 @@ void tms320c51_device::op_sfr()
 
 void tms320c51_device::op_sfrb()
 {
-	fatalerror("TMS320C5x: unimplemented op sfrb at %08X\n", m_pc-1);
+	uint32_t const acc = m_acc;
+	uint32_t const accb = m_accb;
+
+	// arithmetic shift when SXM is set, logical otherwise
+	m_acc = m_st1.sxm ? (int32_t(acc) >> 1) : int32_t(acc >> 1);
+	m_accb = (accb >> 1) | ((acc & 1) << 31);
+	m_st1.c = accb & 1;
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_sub_mem()
@@ -818,7 +879,14 @@ void tms320c51_device::op_subs()
 
 void tms320c51_device::op_subt()
 {
-	fatalerror("TMS320C5x: unimplemented op subt at %08X\n", m_pc-1);
+	uint16_t const ea = GET_ADDRESS();
+	uint16_t const data = DM_READ16(ea);
+	int const shift = m_treg1 & 0xf;
+
+	uint32_t const d = m_st1.sxm ? (uint32_t(int32_t(int16_t(data))) << shift) : (uint32_t(data) << shift);
+	m_acc = SUB(m_acc, d, false);
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_xor_mem()
@@ -848,7 +916,9 @@ void tms320c51_device::op_xor_s16_limm()
 
 void tms320c51_device::op_xorb()
 {
-	fatalerror("TMS320C5x: unimplemented op xorb at %08X\n", m_pc-1);
+	m_acc ^= m_accb;
+
+	CYCLES(1);
 }
 
 void tms320c51_device::op_zalr()
